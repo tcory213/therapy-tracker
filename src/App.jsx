@@ -7,7 +7,7 @@ import * as XLSX from "xlsx";
 import { initializeApp } from "firebase/app";
 import {
   getFirestore, doc, getDoc, setDoc,
-  collection, getDocs, onSnapshot
+  collection, getDocs, onSnapshot, deleteDoc
 } from "firebase/firestore";
 
 // ──────────────────────────────────────────────
@@ -364,7 +364,7 @@ export default function App() {
     setLoading(false);
   }
 
-  // ── 上傳班表 ───────────────────────────────
+  // ── 上傳班表（清空該月再重寫）─────────────
   async function uploadSchedule(file) {
     setLoading(true); setLoadText("解析班表…");
     try {
@@ -372,11 +372,31 @@ export default function App() {
       const parsed = parseScheduleExcel(buf);
       if (Object.keys(parsed).length === 0) throw new Error("未解析到任何資料");
 
+      // 找出這次上傳涵蓋的年月
+      const months = new Set(Object.keys(parsed).map(dk => dk.slice(0,7))); // "YYYY-MM"
+
+      setLoadText("清除舊班表…");
+      // 刪除 Firestore 中同月份的舊資料
+      const snap = await getDocs(collection(db, "schedule"));
+      const toDelete = [];
+      snap.forEach(d => {
+        if (months.has(d.id.slice(0,7))) toDelete.push(d.id);
+      });
+      for (const id of toDelete) {
+        await deleteDoc(doc(db, "schedule", id));
+      }
+
       setLoadText("上傳中…");
       for (const [dk, data] of Object.entries(parsed)) {
         await fsSet("schedule", dk, data);
       }
-      setSchedule(prev => ({ ...prev, ...parsed }));
+
+      // 更新本地 schedule state：移除舊月份，加入新資料
+      setSchedule(prev => {
+        const next = { ...prev };
+        for (const id of toDelete) delete next[id];
+        return { ...next, ...parsed };
+      });
       showToast(`✓ 班表上傳成功！共 ${Object.keys(parsed).length} 天`);
     } catch(e) {
       showToast("班表解析失敗："+e.message, "error");
@@ -458,9 +478,23 @@ export default function App() {
 // ══════════════════════════════════════════════
 function CalendarPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,analyzeEntry,chipStatus,onClickCell }) {
   const days = getDaysInMonth(viewY, viewM);
-  const firstDay = getFirstDayOfWeek(viewY, viewM);
+  // 週一為起始（0=週一, 5=週六，週日不顯示）
+  const rawFirst = getFirstDayOfWeek(viewY, viewM); // 0=日,1=一,...,6=六
+  const firstDay = rawFirst === 0 ? 6 : rawFirst - 1; // 轉換為週一起始
   const cells = Array(firstDay).fill(null).concat(Array.from({length:days},(_,i)=>i+1));
-  while (cells.length%7!==0) cells.push(null);
+  // 過濾掉週日（原始weekday===0）
+  const filteredCells = cells.filter((d, i) => {
+    if (d === null) {
+      // 空格：計算對應的weekday
+      const weekday = i % 7; // 0=週一,1=週二,...,5=週六
+      return weekday < 6; // 只保留週一到週六
+    }
+    // 有日期：計算該日是週幾
+    const date = new Date(viewY, viewM, d);
+    return date.getDay() !== 0; // 0=週日，排除
+  });
+  while (filteredCells.length % 6 !== 0) filteredCells.push(null);
+  const cells2 = filteredCells;
 
   function prevMonth() { if(viewM===0){setViewY(y=>y-1);setViewM(11);}else setViewM(m=>m-1); }
   function nextMonth() { if(viewM===11){setViewY(y=>y+1);setViewM(0);}else setViewM(m=>m+1); }
@@ -476,12 +510,12 @@ function CalendarPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,analyzeE
         <button onClick={nextMonth} style={S.arrowBtn}>›</button>
       </div>
       <div style={S.weekRow}>
-        {["日","一","二","三","四","五","六"].map(w=>(
+        {["一","二","三","四","五","六"].map(w=>(
           <div key={w} style={S.weekLabel}>{w}</div>
         ))}
       </div>
       <div style={S.calGrid}>
-        {cells.map((d,i) => {
+        {cells2.map((d,i) => {
           if (!d) return <div key={`e${i}`} style={S.emptyCell}/>;
           const dk = dateKey(viewY, viewM, d);
           const dayData = sessions[dk] || {};
@@ -912,9 +946,9 @@ const S = {
   arrowBtn:{ background:"#0ea5e9",color:"#fff",border:"none",borderRadius:8,
     width:36,height:36,fontSize:22,cursor:"pointer",lineHeight:1 },
   monthTitle:{ fontSize:22,fontWeight:700,color:"#0c4a6e" },
-  weekRow:{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:2 },
+  weekRow:{ display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:2,marginBottom:2 },
   weekLabel:{ textAlign:"center",fontWeight:600,color:"#64748b",fontSize:13,padding:"4px 0" },
-  calGrid:{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3 },
+  calGrid:{ display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:3 },
   emptyCell:{ minHeight:110 },
   dayCell:{ background:"#fff",borderRadius:10,padding:6,minHeight:110,
     boxShadow:"0 1px 4px rgba(0,0,0,0.06)",border:"1px solid #e2e8f0",overflow:"hidden" },
