@@ -1,13 +1,17 @@
 // ═══════════════════════════════════════════════════════════════════
 // 治療人次統計系統 - Firebase 雲端版
-// 使用前請在 Firebase Console 建立專案並填入下方設定
 // ═══════════════════════════════════════════════════════════════════
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import * as XLSX from "xlsx";
+import { initializeApp } from "firebase/app";
+import {
+  getFirestore, doc, getDoc, setDoc,
+  collection, getDocs, onSnapshot
+} from "firebase/firestore";
 
 // ──────────────────────────────────────────────
-// 🔥 Firebase 設定（請替換成你自己的設定）
+// 🔥 Firebase 設定
 // ──────────────────────────────────────────────
 const FIREBASE_CONFIG = {
   apiKey:            "AIzaSyDYDD2YmqgmgzgUVni0Saf7aQM7ctwFcno",
@@ -19,48 +23,26 @@ const FIREBASE_CONFIG = {
 };
 
 // ──────────────────────────────────────────────
-// Firebase SDK 動態載入
+// Firebase 初始化（靜態 import，最穩定）
 // ──────────────────────────────────────────────
-let db = null;
-let firebaseReady = false;
-
-async function initFirebase() {
-  if (firebaseReady) return true;
-  try {
-    const [appMod, fsMod] = await Promise.all([
-      import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js"),
-      import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js"),
-    ]);
-    const app = appMod.initializeApp(FIREBASE_CONFIG);
-    db = fsMod.getFirestore(app);
-    window._fsLib = fsMod;
-    firebaseReady = true;
-    return true;
-  } catch (e) {
-    console.error("Firebase init failed:", e);
-    return false;
-  }
-}
+const _app = initializeApp(FIREBASE_CONFIG);
+const db   = getFirestore(_app);
 
 // Firestore CRUD helpers
 async function fsGet(col, docId) {
-  const { doc, getDoc } = window._fsLib;
   const snap = await getDoc(doc(db, col, docId));
   return snap.exists() ? snap.data() : null;
 }
 async function fsSet(col, docId, data) {
-  const { doc, setDoc } = window._fsLib;
   await setDoc(doc(db, col, docId), data, { merge: true });
 }
 async function fsGetAll(col) {
-  const { collection, getDocs } = window._fsLib;
   const snap = await getDocs(collection(db, col));
   const result = {};
   snap.forEach(d => { result[d.id] = d.data(); });
   return result;
 }
-async function fsOnSnapshot(col, callback) {
-  const { collection, onSnapshot } = window._fsLib;
+function fsOnSnapshot(col, callback) {
   return onSnapshot(collection(db, col), snap => {
     const result = {};
     snap.forEach(d => { result[d.id] = d.data(); });
@@ -239,9 +221,6 @@ export default function App() {
   // ── Firebase 初始化 ──────────────────────────
   useEffect(() => {
     (async () => {
-      const ok = await initFirebase();
-      if (!ok) { setFbError(true); setLoading(false); return; }
-
       setLoadText("載入設定…");
       try {
         const [cfg, sched] = await Promise.all([
@@ -254,11 +233,16 @@ export default function App() {
           if (cfg.bonusThres) setBonusThres(cfg.bonusThres);
         }
         if (sched) setSchedule(sched);
-      } catch(e) { console.error(e); }
+      } catch(e) {
+        console.error(e);
+        setFbError(true);
+        setLoading(false);
+        return;
+      }
 
       setLoadText("即時同步中…");
       // 即時監聽 sessions
-      unsubRef.current = await fsOnSnapshot("sessions", data => {
+      unsubRef.current = fsOnSnapshot("sessions", data => {
         setSessions(data);
         setLoading(false);
         setFbReady(true);
