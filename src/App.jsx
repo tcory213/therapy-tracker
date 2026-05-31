@@ -90,48 +90,42 @@ function getPrev3WeeksDates(y, m, d) {
 // 班表 Excel 解析
 // ──────────────────────────────────────────────
 function parseScheduleExcel(arrayBuffer) {
-  const wb = XLSX.read(arrayBuffer, { type:"array" });
+  // cellDates:true → 日期 cell 直接輸出 JS Date 物件（SheetJS 0.18 相容）
+  const wb = XLSX.read(arrayBuffer, { type:"array", cellDates: true });
   const ws = wb.Sheets["PT"];
   if (!ws) throw new Error("找不到 PT 工作表");
 
   const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:null });
   const result = {}; // { "YYYY-MM-DD": { A:[codes], B:[codes], C:[codes] } }
 
-  // 找日期行與三個班次行
   for (let i = 0; i < rows.length - 3; i++) {
     const row = rows[i];
-    // 找含日期序號或 Date 物件的行
-    const dateCells = row.map((v,ci) => {
+
+    // 找含 Date 物件的欄位
+    const dateCells = row.map((v, ci) => {
       if (!v) return null;
-      let d = null;
-      if (v instanceof Date) d = v;
-      else if (typeof v === "number" && v > 40000 && v < 60000) {
-        // Excel 日期序號 → JS Date
-        d = XLSX.SSF.parse_date_code(v);
-        d = new Date(d.y, d.m-1, d.d);
+      if (v instanceof Date && !isNaN(v.getTime())) {
+        return { col: ci, date: v };
       }
-      return d ? { col:ci, date:d } : null;
+      return null;
     }).filter(Boolean);
 
     if (dateCells.length === 0) continue;
-    // 找下方三行是否為班次行
+
+    // 確認下一行是 A 班（0800-1200）
     const rowA = rows[i+1] || [];
     const rowB = rows[i+2] || [];
     const rowC = rows[i+3] || [];
-    if (!["0800-1200","08:00:00"].includes(rowA[0]) &&
-        !String(rowA[0]||"").includes("0800")) continue;
+    const firstCell = String(rowA[0] || "");
+    if (!firstCell.includes("0800") && !firstCell.includes("08:")) continue;
 
-    // 每個日期對應6欄（col, col+1, ..., col+5）
-    // 先建立日期→欄範圍對應
-    // 週六有時在最後，也可能佔相同寬度
-    // 策略：對每個日期cell，取其後5欄作為該天的欄位範圍
-    // 但實際是每6欄一天；找相鄰日期間距
-    const sorted = [...dateCells].sort((a,b)=>a.col-b.col);
+    // 計算欄寬（相鄰日期的間距，通常是 6）
+    const sorted = [...dateCells].sort((a, b) => a.col - b.col);
     const colWidth = sorted.length >= 2 ? (sorted[1].col - sorted[0].col) : 6;
 
     for (const { col, date } of sorted) {
       const dk = dateKey(date.getFullYear(), date.getMonth(), date.getDate());
-      const slice = (r) => (r||[]).slice(col, col+colWidth);
+      const slice = (r) => (r || []).slice(col, col + colWidth);
       const codes = (r) => slice(r)
         .filter(v => v && typeof v === "string" && /^[A-Z]$/.test(v.trim()))
         .map(v => v.trim());
@@ -144,6 +138,10 @@ function parseScheduleExcel(arrayBuffer) {
         result[dk] = { A: codesA, B: codesB, C: codesC };
       }
     }
+  }
+
+  if (Object.keys(result).length === 0) {
+    throw new Error("未解析到任何排班資料，請確認 Excel 格式是否正確（需有 PT 工作表）");
   }
   return result;
 }
