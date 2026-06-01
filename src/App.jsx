@@ -193,7 +193,7 @@ function Toast({ message, type, onDone }) {
 // ──────────────────────────────────────────────
 function Loader({ text }) {
   return (
-    <div style={{ position:"fixed",inset:0,background:"rgba(255,255,255,0.85)",
+    <div style={{ position:"fixed",inset:0,background:"linear-gradient(135deg,#f0f9ff,#e0f2fe)",
       display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:8888 }}>
       <div style={{ width:48,height:48,border:"5px solid #bae6fd",
         borderTopColor:"#0ea5e9",borderRadius:"50%",animation:"spin 0.8s linear infinite" }}/>
@@ -427,9 +427,11 @@ export default function App() {
     </div>
   );
 
+  // 初始化期間只顯示 Loader，不渲染任何其他 UI
+  if (loading) return <Loader text={loadText} />;
+
   return (
     <div style={S.root}>
-      {loading && <Loader text={loadText} />}
       {working && <WorkingBar />}
       {toast && <Toast message={toast.message} type={toast.type} onDone={()=>setToast(null)} />}
 
