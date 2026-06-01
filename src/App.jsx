@@ -212,6 +212,7 @@ export default function App() {
   const [inputStaff, setInputStaff] = useState("6");
   const [inputNote,  setInputNote]  = useState("");
   const [toast,      setToast]      = useState(null);
+  const [saving,     setSaving]     = useState(false);
 
   const unsubRef = useRef(null);
 
@@ -272,7 +273,7 @@ export default function App() {
   // ── 儲存人次 ───────────────────────────────
   async function saveEntry() {
     if (inputCount === "") { showToast("請先輸入人次！","error"); return; }
-    setLoading(true); setLoadText("儲存中…");
+    setSaving(true);
     try {
       const entry = { count:Number(inputCount), staff:inputStaff, note:inputNote };
       const existing = sessions[inputDate] || {};
@@ -281,7 +282,7 @@ export default function App() {
     } catch(e) {
       showToast("儲存失敗："+e.message,"error");
     }
-    setLoading(false);
+    setSaving(false);
   }
 
   // ── 分析某節 ───────────────────────────────
@@ -442,7 +443,7 @@ export default function App() {
             inputNote={inputNote} setInputNote={setInputNote}
             ranges={ranges} bonusThres={bonusThres}
             analyzeEntry={analyzeEntry} onSave={saveEntry}
-            schedule={schedule}
+            schedule={schedule} saving={saving}
           />
         )}
         {page==="stats" && (
@@ -561,7 +562,7 @@ function CalendarPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,analyzeE
 // INPUT PAGE
 // ══════════════════════════════════════════════
 function InputPage({ inputDate,setInputDate,inputSess,setInputSess,inputCount,setInputCount,
-  inputStaff,setInputStaff,inputNote,setInputNote,ranges,bonusThres,analyzeEntry,onSave,schedule }) {
+  inputStaff,setInputStaff,inputNote,setInputNote,ranges,bonusThres,analyzeEntry,onSave,schedule,saving }) {
 
   const st = sessionType(inputSess);
   const range = ranges[st]?.[inputStaff];
@@ -674,7 +675,7 @@ function InputPage({ inputDate,setInputDate,inputSess,setInputSess,inputCount,se
           placeholder="選填：輸入本節備註…" style={S.noteInput} rows={2}/>
       </div>
 
-      <button onClick={onSave} style={S.saveBtn} disabled={inputCount===""}>💾 儲存此節</button>
+      <button onClick={onSave} style={{...S.saveBtn, opacity:saving?0.7:1}} disabled={inputCount===" "||saving}>{saving?"儲存中…":"💾 儲存此節"}</button>
 
       {/* 前三週分析 */}
       {analysis && (
