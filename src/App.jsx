@@ -77,9 +77,10 @@ function aboveBonus(val, threshold) {
   if (isNaN(n)||isNaN(t)||val===""||val===null) return false;
   return n > t;
 }
-function getPrev3WeeksDates(y, m, d) {
+// 取「當日 + 前兩週同節」共三個日期（含當日）
+function get3WeeksDates(y, m, d) {
   const base = new Date(y, m, d);
-  return [1,2,3].map(w => {
+  return [0,1,2].map(w => {
     const p = new Date(base);
     p.setDate(base.getDate() - w*7);
     return dateKey(p.getFullYear(), p.getMonth(), p.getDate());
@@ -314,10 +315,13 @@ export default function App() {
     const isBonus = aboveBonus(count, thres);
 
     const [y,m,d] = dk.split("-").map(Number);
-    const prev3 = getPrev3WeeksDates(y, m-1, d);
-    const prevCounts = prev3.map(pk=>sessions[pk]?.[sess]?.count).filter(v=>v!==undefined);
-    const avg = prevCounts.length===3 ? prevCounts.reduce((a,b)=>a+b,0)/3 : null;
+    // 當日 + 前兩週，共三週（含當日）
+    const three = get3WeeksDates(y, m-1, d);
+    const threeCounts = three.map(pk=>sessions[pk]?.[sess]?.count).filter(v=>v!==undefined);
+    // 三週都有資料才計算平均
+    const avg = threeCounts.length===3 ? threeCounts.reduce((a,b)=>a+b,0)/3 : null;
     const avgOk = avg!==null ? inRange(avg, range) : null;
+    // 三週平均超出緩衝上下界才警示
     const avgWarn = avgOk === false;
 
     return { count, staff, range, thres, ok, isBonus, avg, avgOk, avgWarn };
@@ -563,7 +567,7 @@ function CalendarPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,analyzeE
               {SESSIONS.map(sess => {
                 const a = analyzeEntry(dk, sess);
                 if (!a||!a.avgWarn||a.avg===null) return null;
-                return <div key={`av${sess}`} style={S.avgWarning}>{sess}均{a.avg.toFixed(1)}⚠️</div>;
+                return <div key={`av${sess}`} style={S.avgWarning}>{sess}三週均{a.avg.toFixed(1)}⚠️</div>;
               })}
             </div>
           );
@@ -600,8 +604,8 @@ function InputPage({ inputDate,setInputDate,inputSess,setInputSess,inputCount,se
 
   function dispStyle() {
     if (countNum===null) return {};
-    if (isBonus) return { background:"#fef9c3",color:"#854d0e",borderColor:"#fbbf24" };
-    if (ok===false) return { background:"#fee2e2",color:"#991b1b",borderColor:"#fca5a5" };
+    if (isBonus) return { background:"#fee2e2",color:"#991b1b",borderColor:"#fca5a5" };
+    if (ok===false) return { background:"#fef9c3",color:"#854d0e",borderColor:"#fbbf24" };
     if (ok===true)  return { background:"#d1fae5",color:"#065f46",borderColor:"#6ee7b7" };
     return {};
   }
@@ -700,11 +704,11 @@ function InputPage({ inputDate,setInputDate,inputSess,setInputSess,inputCount,se
       {/* 前三週分析 */}
       {analysis && (
         <div style={S.analysisBox}>
-          <div style={S.analysisTitle}>📊 前三週同節平均分析</div>
+          <div style={S.analysisTitle}>📊 連續三週（含本節）平均分析</div>
           {analysis.avg!==null ? (
             <div style={{...S.analysisRow,color:analysis.avgWarn?"#dc2626":"#065f46",fontWeight:600}}>
-              前三週平均：{analysis.avg.toFixed(1)}
-              {analysis.avgWarn && <span style={S.avgAlert}>　⚠️ 連續三週超出緩衝範圍！</span>}
+              三週平均（含本節）：{analysis.avg.toFixed(1)}
+              {analysis.avgWarn && <span style={S.avgAlert}>　⚠️ 連續三週平均超出緩衝範圍！</span>}
               {!analysis.avgWarn && analysis.avgOk===true && <span style={{color:"#059669"}}>　✓ 正常</span>}
             </div>
           ) : (
@@ -932,8 +936,8 @@ function SettingsPage({ ranges,bonusThres,onSave,uploadSchedule,showToast }) {
 // ──────────────────────────────────────────────
 function chipColor(status) {
   switch(status) {
-    case "bonus":    return { background:"#fef9c3",color:"#854d0e",border:"1.5px solid #fbbf24" };
-    case "avg_warn": return { background:"#fee2e2",color:"#991b1b",border:"1.5px solid #f87171" };
+    case "bonus":    return { background:"#fee2e2",color:"#991b1b",border:"1.5px solid #f87171" };
+    case "avg_warn": return { background:"#fef9c3",color:"#854d0e",border:"1.5px solid #fbbf24" };
     case "ok":       return { background:"#d1fae5",color:"#065f46",border:"1.5px solid #6ee7b7" };
     case "neutral":  return { background:"#e0f2fe",color:"#0c4a6e",border:"1.5px solid #7dd3fc" };
     default:         return { background:"#f1f5f9",color:"#94a3b8",border:"1px solid #e2e8f0" };
