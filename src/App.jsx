@@ -158,6 +158,22 @@ function codestoStaffOption(codes) {
 // ──────────────────────────────────────────────
 // Toast
 // ──────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// WORKING BAR（頂部進度條，不遮蓋畫面）
+// ══════════════════════════════════════════════════════════════
+function WorkingBar() {
+  return (
+    <div style={{
+      position:"fixed", top:0, left:0, right:0, height:4, zIndex:9998,
+      background:"linear-gradient(90deg,#0ea5e9,#10b981,#0ea5e9)",
+      backgroundSize:"200% 100%",
+      animation:"workingBar 1.2s linear infinite",
+    }}>
+      <style>{`@keyframes workingBar{0%{background-position:0% 0}100%{background-position:200% 0}}`}</style>
+    </div>
+  );
+}
+
 function Toast({ message, type, onDone }) {
   useEffect(() => { const t = setTimeout(onDone, 2200); return ()=>clearTimeout(t); }, [onDone]);
   const bg = type==="success"?"#10b981":type==="error"?"#ef4444":"#0ea5e9";
@@ -193,8 +209,9 @@ function Loader({ text }) {
 export default function App() {
   const [fbReady,  setFbReady]  = useState(false);
   const [fbError,  setFbError]  = useState(false);
-  const [loading,  setLoading]  = useState(true);
-  const [loadText, setLoadText] = useState("連線 Firebase…");
+  const [loading,  setLoading]  = useState(true);   // 只用於初始化
+  const [loadText, setLoadText] = useState("載入資料中…");
+  const [working,  setWorking]  = useState(false);  // 設定/班表上傳用
 
   const [page, setPage] = useState("calendar");
   const [ranges,     setRanges]     = useState({ AB:{}, C:{} });
@@ -348,19 +365,19 @@ export default function App() {
 
   // ── 儲存設定 ───────────────────────────────
   async function saveSettings(newRanges, newBonusThres) {
-    setLoading(true); setLoadText("儲存設定…");
+    setWorking(true);
     try {
       await fsSet("config","settings",{ ranges:newRanges, bonusThres:newBonusThres });
       setRanges(newRanges);
       setBonusThres(newBonusThres);
       showToast("✓ 設定儲存成功！");
     } catch(e) { showToast("儲存失敗","error"); }
-    setLoading(false);
+    setWorking(false);
   }
 
   // ── 上傳班表（清空該月再重寫）─────────────
   async function uploadSchedule(file) {
-    setLoading(true); setLoadText("解析班表…");
+    setWorking(true);
     try {
       const buf = await file.arrayBuffer();
       const parsed = parseScheduleExcel(buf);
@@ -369,7 +386,7 @@ export default function App() {
       // 找出這次上傳涵蓋的年月
       const months = new Set(Object.keys(parsed).map(dk => dk.slice(0,7))); // "YYYY-MM"
 
-      setLoadText("清除舊班表…");
+
       // 刪除 Firestore 中同月份的舊資料
       const snap = await getDocs(collection(db, "schedule"));
       const toDelete = [];
@@ -380,7 +397,7 @@ export default function App() {
         await deleteDoc(doc(db, "schedule", id));
       }
 
-      setLoadText("上傳中…");
+
       for (const [dk, data] of Object.entries(parsed)) {
         await fsSet("schedule", dk, data);
       }
@@ -395,7 +412,7 @@ export default function App() {
     } catch(e) {
       showToast("班表解析失敗："+e.message, "error");
     }
-    setLoading(false);
+    setWorking(false);
   }
 
   // ──────────────────────────────────────────────
@@ -413,6 +430,7 @@ export default function App() {
   return (
     <div style={S.root}>
       {loading && <Loader text={loadText} />}
+      {working && <WorkingBar />}
       {toast && <Toast message={toast.message} type={toast.type} onDone={()=>setToast(null)} />}
 
       <nav style={S.nav}>
