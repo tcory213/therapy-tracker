@@ -198,7 +198,6 @@ export default function App() {
 
   const [page, setPage] = useState("calendar");
   const [ranges,     setRanges]     = useState({ AB:{}, C:{} });
-  const [bonusAmt,   setBonusAmt]   = useState({ AB:{}, C:{} }); // 每節每人員量的固定獎金金額
   const [bonusThres, setBonusThres] = useState({ AB:{}, C:{} }); // 超次獎金門檻
   const [sessions,   setSessions]   = useState({});   // { dateKey: { A:{count,staff,note,codes}, ... } }
   const [schedule,   setSchedule]   = useState({});   // { dateKey: { A:[codes], B:[codes], C:[codes] } }
@@ -227,7 +226,6 @@ export default function App() {
         ]);
         if (cfg) {
           if (cfg.ranges)     setRanges(cfg.ranges);
-          if (cfg.bonusAmt)   setBonusAmt(cfg.bonusAmt);
           if (cfg.bonusThres) setBonusThres(cfg.bonusThres);
         }
         if (sched) setSchedule(sched);
@@ -294,7 +292,6 @@ export default function App() {
     const st = sessionType(sess);
     const range  = ranges[st]?.[staff];
     const thres  = bonusThres[st]?.[staff];
-    const amt    = bonusAmt[st]?.[staff];
     const ok     = inRange(count, range);
     const isBonus = aboveBonus(count, thres);
 
@@ -306,7 +303,7 @@ export default function App() {
     const avgWarn = avgOk === false;
 
     return { count, staff, range, thres, amt, ok, isBonus, avg, avgOk, avgWarn };
-  }, [sessions, ranges, bonusThres, bonusAmt]);
+  }, [sessions, ranges, bonusThres]);
 
   // ── chip 顏色狀態 ───────────────────────────
   function chipStatus(dk, sess) {
@@ -321,10 +318,10 @@ export default function App() {
     return "neutral";
   }
 
-  // ── 月末獎金計算 ────────────────────────────
-  function calcMonthlyBonus(y, m) {
+  // ── 月超次統計 ──────────────────────────────
+  function calcMonthlyOvertime(y, m) {
     const days = getDaysInMonth(y, m);
-    const bonusMap = {}; // { therapistCode: totalBonus }
+    const overtimeMap = {}; // { therapistCode: count }
 
     for (let d = 1; d <= days; d++) {
       const dk = dateKey(y, m, d);
@@ -336,28 +333,24 @@ export default function App() {
         if (!entry) continue;
         const st = sessionType(sess);
         const thres = bonusThres[st]?.[entry.staff];
-        const amt   = bonusAmt[st]?.[entry.staff];
         if (!aboveBonus(entry.count, thres)) continue;
-        if (!amt || Number(amt) === 0) continue;
 
-        // 找當節的治療師（排除助理）
         const codes = sched[sess] || [];
         const therapists = codes.filter(c => !ASSISTANT_CODES.includes(c));
         for (const code of therapists) {
-          bonusMap[code] = (bonusMap[code] || 0) + Number(amt);
+          overtimeMap[code] = (overtimeMap[code] || 0) + 1;
         }
       }
     }
-    return bonusMap;
+    return overtimeMap;
   }
 
   // ── 儲存設定 ───────────────────────────────
-  async function saveSettings(newRanges, newBonusAmt, newBonusThres) {
+  async function saveSettings(newRanges, newBonusThres) {
     setLoading(true); setLoadText("儲存設定…");
     try {
-      await fsSet("config","settings",{ ranges:newRanges, bonusAmt:newBonusAmt, bonusThres:newBonusThres });
+      await fsSet("config","settings",{ ranges:newRanges, bonusThres:newBonusThres });
       setRanges(newRanges);
-      setBonusAmt(newBonusAmt);
       setBonusThres(newBonusThres);
       showToast("✓ 設定儲存成功！");
     } catch(e) { showToast("儲存失敗","error"); }
@@ -424,7 +417,7 @@ export default function App() {
       <nav style={S.nav}>
         <span style={S.navBrand}>🏥 治療人次統計</span>
         <div style={S.navTabs}>
-          {[["calendar","📅 月曆"],["input","✏️ 輸入"],["bonus","🏅 獎金"],["settings","⚙️ 設定"]].map(([p,l])=>(
+          {[["calendar","📅 月曆"],["input","✏️ 輸入"],["stats","📊 超次統計"],["settings","⚙️ 設定"]].map(([p,l])=>(
             <button key={p} onClick={()=>setPage(p)}
               style={{ ...S.navBtn, ...(page===p?S.navBtnActive:{}) }}>{l}</button>
           ))}
@@ -452,18 +445,16 @@ export default function App() {
             schedule={schedule}
           />
         )}
-        {page==="bonus" && (
-          <BonusPage viewY={viewY} viewM={viewM}
+        {page==="stats" && (
+          <StatsPage viewY={viewY} viewM={viewM}
             setViewY={setViewY} setViewM={setViewM}
-            calcMonthlyBonus={calcMonthlyBonus}
             sessions={sessions} schedule={schedule}
-            bonusThres={bonusThres} bonusAmt={bonusAmt}
-            ranges={ranges}
+            bonusThres={bonusThres}
           />
         )}
         {page==="settings" && (
           <SettingsPage
-            ranges={ranges} bonusAmt={bonusAmt} bonusThres={bonusThres}
+            ranges={ranges} bonusThres={bonusThres}
             onSave={saveSettings} uploadSchedule={uploadSchedule}
             showToast={showToast}
           />
@@ -640,10 +631,10 @@ function InputPage({ inputDate,setInputDate,inputSess,setInputSess,inputCount,se
         </div>
       </div>
 
-      {/* 合理範圍 + 獎金門檻 */}
+      {/* 緩衝範圍 + 獎金門檻 */}
       <div style={S.rangeBox}>
         <div>
-          <span style={S.rangeLabel}>{inputSess==="C"?"C班":"AB班"} × {inputStaff}　合理區間：</span>
+          <span style={S.rangeLabel}>{inputSess==="C"?"C班":"AB班"} × {inputStaff}　緩衝區間：</span>
           <span style={S.rangeVal}>
             {(range&&range[0]!==""&&range[1]!=="") ? `${range[0]} ～ ${range[1]}` : "未設定"}
           </span>
@@ -692,14 +683,14 @@ function InputPage({ inputDate,setInputDate,inputSess,setInputSess,inputCount,se
           {analysis.avg!==null ? (
             <div style={{...S.analysisRow,color:analysis.avgWarn?"#dc2626":"#065f46",fontWeight:600}}>
               前三週平均：{analysis.avg.toFixed(1)}
-              {analysis.avgWarn && <span style={S.avgAlert}>　⚠️ 連續三週超出合理範圍！</span>}
+              {analysis.avgWarn && <span style={S.avgAlert}>　⚠️ 連續三週超出緩衝範圍！</span>}
               {!analysis.avgWarn && analysis.avgOk===true && <span style={{color:"#059669"}}>　✓ 正常</span>}
             </div>
           ) : (
             <div style={S.analysisRow}>前三週資料不足（需完整三週）</div>
           )}
-          {range&&range[0]!==""&&<div style={{...S.analysisRow,color:"#64748b"}}>合理區間：{range[0]}～{range[1]}</div>}
-          {thres!==""&&thres!=null&&<div style={{...S.analysisRow,color:"#b45309"}}>獎金門檻：＞{thres}</div>}
+          {range&&range[0]!==""&&<div style={{...S.analysisRow,color:"#64748b"}}>緩衝區間：{range[0]}～{range[1]}</div>}
+          {thres!==""&&thres!=null&&<div style={{...S.analysisRow,color:"#b45309"}}>超次門檻：＞{thres}</div>}
         </div>
       )}
     </div>
@@ -707,58 +698,74 @@ function InputPage({ inputDate,setInputDate,inputSess,setInputSess,inputCount,se
 }
 
 // ══════════════════════════════════════════════
-// BONUS PAGE
+// STATS PAGE - 超次統計
 // ══════════════════════════════════════════════
-function BonusPage({ viewY,viewM,setViewY,setViewM,calcMonthlyBonus,sessions,schedule,bonusThres,bonusAmt,ranges }) {
+function StatsPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,bonusThres }) {
   function prev() { if(viewM===0){setViewY(y=>y-1);setViewM(11);}else setViewM(m=>m-1); }
   function next() { if(viewM===11){setViewY(y=>y+1);setViewM(0);}else setViewM(m=>m+1); }
 
-  const bonusMap = calcMonthlyBonus(viewY, viewM);
-  const total = Object.values(bonusMap).reduce((a,b)=>a+b, 0);
-
-  // 建立明細：哪天哪節超次
+  // 計算當月每位治療師的超次節次明細
   const days = getDaysInMonth(viewY, viewM);
+  const overtimeMap = {}; // { code: [ {dk, sess, count, thres} ] }
   const details = [];
-  for (let d=1; d<=days; d++) {
+
+  for (let d = 1; d <= days; d++) {
     const dk = dateKey(viewY, viewM, d);
+    const sched = schedule[dk];
+    if (!sched) continue;
     for (const sess of SESSIONS) {
       const entry = sessions[dk]?.[sess];
       if (!entry) continue;
       const st = sessionType(sess);
       const thres = bonusThres[st]?.[entry.staff];
-      const amt   = bonusAmt[st]?.[entry.staff];
       if (!aboveBonus(entry.count, thres)) continue;
-      const codes = schedule[dk]?.[sess] || [];
-      const therapists = codes.filter(c=>!ASSISTANT_CODES.includes(c));
-      details.push({ dk, sess, count:entry.count, staff:entry.staff, thres, amt, therapists });
+      const codes = sched[sess] || [];
+      const therapists = codes.filter(c => !ASSISTANT_CODES.includes(c));
+      details.push({ dk, sess, count: entry.count, staff: entry.staff, thres, therapists });
+      for (const code of therapists) {
+        if (!overtimeMap[code]) overtimeMap[code] = [];
+        overtimeMap[code].push({ dk, sess, count: entry.count });
+      }
     }
   }
 
+  const sortedTherapists = Object.entries(overtimeMap).sort((a,b) => b[1].length - a[1].length);
+
   return (
-    <div style={{ maxWidth:680,margin:"0 auto" }}>
+    <div style={{ maxWidth:680, margin:"0 auto" }}>
       <div style={S.calHeader}>
         <button onClick={prev} style={S.arrowBtn}>‹</button>
-        <span style={S.monthTitle}>{viewY} 年 {viewM+1} 月　獎金報表</span>
+        <span style={S.monthTitle}>{viewY} 年 {viewM+1} 月　超次統計</span>
         <button onClick={next} style={S.arrowBtn}>›</button>
       </div>
 
-      {/* 每人總獎金 */}
+      {/* 每人超次次數 */}
       <div style={S.bonusSection}>
-        <div style={S.bonusSectionTitle}>🏅 每位治療師本月獎金</div>
-        {Object.keys(bonusMap).length === 0 ? (
-          <div style={{ color:"#94a3b8",padding:"20px 0",textAlign:"center" }}>本月尚無超次獎金記錄</div>
+        <div style={S.bonusSectionTitle}>📊 每位治療師本月超次節數</div>
+        {sortedTherapists.length === 0 ? (
+          <div style={{ color:"#94a3b8", padding:"20px 0", textAlign:"center" }}>
+            本月尚無超次記錄
+          </div>
         ) : (
           <div style={S.bonusGrid}>
-            {Object.entries(bonusMap).sort((a,b)=>b[1]-a[1]).map(([code, amt])=>(
+            {sortedTherapists.map(([code, list]) => (
               <div key={code} style={S.bonusCard}>
                 <div style={S.bonusCode}>{code}</div>
-                <div style={S.bonusAmount}>NT$ {amt.toLocaleString()}</div>
+                <div style={S.bonusAmount}>
+                  <span style={{ fontSize:32, fontWeight:900 }}>{list.length}</span>
+                  <span style={{ fontSize:14, marginLeft:4 }}>節</span>
+                </div>
+                <div style={{ fontSize:11, color:"#92400e", marginTop:4 }}>
+                  {list.map(r => `${r.dk.slice(5)} ${r.sess}班`).join("、")}
+                </div>
               </div>
             ))}
           </div>
         )}
-        {Object.keys(bonusMap).length>0 && (
-          <div style={S.bonusTotal}>本月獎金總計：<strong>NT$ {total.toLocaleString()}</strong></div>
+        {sortedTherapists.length > 0 && (
+          <div style={{ ...S.bonusTotal, color:"#854d0e" }}>
+            本月超次總節數：<strong>{details.length} 節</strong>
+          </div>
         )}
       </div>
 
@@ -775,21 +782,17 @@ function BonusPage({ viewY,viewM,setViewY,setViewM,calcMonthlyBonus,sessions,sch
                 <th style={S.th}>人次</th>
                 <th style={S.th}>門檻</th>
                 <th style={S.th}>治療師</th>
-                <th style={S.th}>每人獎金</th>
               </tr>
             </thead>
             <tbody>
-              {details.map((r,i)=>(
+              {details.map((r,i) => (
                 <tr key={i} style={{ background:i%2===0?"#f8fafc":"#fff" }}>
                   <td style={S.td}>{r.dk.slice(5)}</td>
                   <td style={S.td}>{r.sess}班</td>
                   <td style={S.td}>{r.staff}</td>
-                  <td style={{ ...S.td,fontWeight:700,color:"#854d0e" }}>{r.count}</td>
+                  <td style={{ ...S.td, fontWeight:700, color:"#854d0e" }}>{r.count}</td>
                   <td style={S.td}>{r.thres}</td>
                   <td style={S.td}>{r.therapists.join(" ") || "—"}</td>
-                  <td style={{ ...S.td,fontWeight:700,color:"#059669" }}>
-                    {r.amt ? `NT$ ${Number(r.amt).toLocaleString()}` : "—"}
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -803,15 +806,13 @@ function BonusPage({ viewY,viewM,setViewY,setViewM,calcMonthlyBonus,sessions,sch
 // ══════════════════════════════════════════════
 // SETTINGS PAGE
 // ══════════════════════════════════════════════
-function SettingsPage({ ranges,bonusAmt,bonusThres,onSave,uploadSchedule,showToast }) {
+function SettingsPage({ ranges,bonusThres,onSave,uploadSchedule,showToast }) {
   const [lRanges, setLRanges] = useState(()=>JSON.parse(JSON.stringify(ranges)));
-  const [lAmt,    setLAmt]    = useState(()=>JSON.parse(JSON.stringify(bonusAmt)));
   const [lThres,  setLThres]  = useState(()=>JSON.parse(JSON.stringify(bonusThres)));
   const fileRef = useRef();
 
   // 同步 props 變更（Firebase 載入後）
   useEffect(()=>{ setLRanges(JSON.parse(JSON.stringify(ranges))); },[ranges]);
-  useEffect(()=>{ setLAmt(JSON.parse(JSON.stringify(bonusAmt))); },[bonusAmt]);
   useEffect(()=>{ setLThres(JSON.parse(JSON.stringify(bonusThres))); },[bonusThres]);
 
   function setVal(setter, type, staff, key, val) {
@@ -861,10 +862,9 @@ function SettingsPage({ ranges,bonusAmt,bonusThres,onSave,uploadSchedule,showToa
               <thead>
                 <tr style={S.thead}>
                   <th style={S.th}>人員量</th>
-                  <th style={S.th}>合理最小</th>
-                  <th style={S.th}>合理最大</th>
+                  <th style={S.th}>緩衝下限</th>
+                  <th style={S.th}>緩衝上限</th>
                   <th style={{ ...S.th,color:"#b45309",background:"#fffbeb" }}>超次門檻</th>
-                  <th style={{ ...S.th,color:"#065f46",background:"#f0fdf4" }}>每人獎金(NT$)</th>
                 </tr>
               </thead>
               <tbody>
@@ -889,12 +889,6 @@ function SettingsPage({ ranges,bonusAmt,bonusThres,onSave,uploadSchedule,showToa
                         onChange={e=>setVal(setLThres,type,staff,"val",e.target.value)}
                         style={{ ...S.settingInput,borderColor:"#fbbf24",background:"#fffbeb" }} placeholder="—"/>
                     </td>
-                    <td style={S.td}>
-                      <input type="number" min="0" max="99999"
-                        value={lAmt[type]?.[staff]??""}
-                        onChange={e=>setVal(setLAmt,type,staff,"val",e.target.value)}
-                        style={{ ...S.settingInput,borderColor:"#6ee7b7",background:"#f0fdf4" }} placeholder="—"/>
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -904,9 +898,9 @@ function SettingsPage({ ranges,bonusAmt,bonusThres,onSave,uploadSchedule,showToa
       ))}
 
       <div style={S.settingsBtnRow}>
-        <button onClick={()=>{ setLRanges({AB:{},C:{}}); setLAmt({AB:{},C:{}}); setLThres({AB:{},C:{}}); }}
+        <button onClick={()=>{ setLRanges({AB:{},C:{}}); setLThres({AB:{},C:{}}); }}
           style={S.resetBtn}>↩ 清空所有</button>
-        <button onClick={()=>onSave(lRanges,lAmt,lThres)} style={S.saveSettingsBtn}>✓ 儲存設定</button>
+        <button onClick={()=>onSave(lRanges,lThres)} style={S.saveSettingsBtn}>✓ 儲存設定</button>
       </div>
     </div>
   );
