@@ -320,7 +320,7 @@ export default function App() {
     const avgOk = avg!==null ? inRange(avg, range) : null;
     const avgWarn = avgOk === false;
 
-    return { count, staff, range, thres, amt, ok, isBonus, avg, avgOk, avgWarn };
+    return { count, staff, range, thres, ok, isBonus, avg, avgOk, avgWarn };
   }, [sessions, ranges, bonusThres]);
 
   // ── chip 顏色狀態 ───────────────────────────
