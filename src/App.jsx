@@ -604,8 +604,8 @@ function InputPage({ inputDate,setInputDate,inputSess,setInputSess,inputCount,se
 
   function dispStyle() {
     if (countNum===null) return {};
-    if (isBonus) return { background:"#fee2e2",color:"#991b1b",borderColor:"#fca5a5" };
-    if (ok===false) return { background:"#fef9c3",color:"#854d0e",borderColor:"#fbbf24" };
+    if (isBonus) return { background:"#fef9c3",color:"#854d0e",borderColor:"#fbbf24" };
+    if (ok===false) return { background:"#fee2e2",color:"#991b1b",borderColor:"#fca5a5" };
     if (ok===true)  return { background:"#d1fae5",color:"#065f46",borderColor:"#6ee7b7" };
     return {};
   }
@@ -936,8 +936,8 @@ function SettingsPage({ ranges,bonusThres,onSave,uploadSchedule,showToast }) {
 // ──────────────────────────────────────────────
 function chipColor(status) {
   switch(status) {
-    case "bonus":    return { background:"#fee2e2",color:"#991b1b",border:"1.5px solid #f87171" };
-    case "avg_warn": return { background:"#fef9c3",color:"#854d0e",border:"1.5px solid #fbbf24" };
+    case "bonus":    return { background:"#fef9c3",color:"#854d0e",border:"1.5px solid #fbbf24" };
+    case "avg_warn": return { background:"#fee2e2",color:"#991b1b",border:"1.5px solid #f87171" };
     case "ok":       return { background:"#d1fae5",color:"#065f46",border:"1.5px solid #6ee7b7" };
     case "neutral":  return { background:"#e0f2fe",color:"#0c4a6e",border:"1.5px solid #7dd3fc" };
     default:         return { background:"#f1f5f9",color:"#94a3b8",border:"1px solid #e2e8f0" };
