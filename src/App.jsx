@@ -77,9 +77,10 @@ function aboveBonus(val, threshold) {
   if (isNaN(n)||isNaN(t)||val===""||val===null) return false;
   return n > t;
 }
-function getPrev3WeeksDates(y, m, d) {
+// 取「當日 + 前兩週同節」共三個日期（含當日）
+function get3WeeksDates(y, m, d) {
   const base = new Date(y, m, d);
-  return [1,2,3].map(w => {
+  return [0,1,2].map(w => {
     const p = new Date(base);
     p.setDate(base.getDate() - w*7);
     return dateKey(p.getFullYear(), p.getMonth(), p.getDate());
@@ -158,6 +159,22 @@ function codestoStaffOption(codes) {
 // ──────────────────────────────────────────────
 // Toast
 // ──────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// WORKING BAR（頂部進度條，不遮蓋畫面）
+// ══════════════════════════════════════════════════════════════
+function WorkingBar() {
+  return (
+    <div style={{
+      position:"fixed", top:0, left:0, right:0, height:4, zIndex:9998,
+      background:"linear-gradient(90deg,#0ea5e9,#10b981,#0ea5e9)",
+      backgroundSize:"200% 100%",
+      animation:"workingBar 1.2s linear infinite",
+    }}>
+      <style>{`@keyframes workingBar{0%{background-position:0% 0}100%{background-position:200% 0}}`}</style>
+    </div>
+  );
+}
+
 function Toast({ message, type, onDone }) {
   useEffect(() => { const t = setTimeout(onDone, 2200); return ()=>clearTimeout(t); }, [onDone]);
   const bg = type==="success"?"#10b981":type==="error"?"#ef4444":"#0ea5e9";
@@ -177,7 +194,7 @@ function Toast({ message, type, onDone }) {
 // ──────────────────────────────────────────────
 function Loader({ text }) {
   return (
-    <div style={{ position:"fixed",inset:0,background:"rgba(255,255,255,0.85)",
+    <div style={{ position:"fixed",inset:0,background:"linear-gradient(135deg,#f0f9ff,#e0f2fe)",
       display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:8888 }}>
       <div style={{ width:48,height:48,border:"5px solid #bae6fd",
         borderTopColor:"#0ea5e9",borderRadius:"50%",animation:"spin 0.8s linear infinite" }}/>
@@ -193,12 +210,12 @@ function Loader({ text }) {
 export default function App() {
   const [fbReady,  setFbReady]  = useState(false);
   const [fbError,  setFbError]  = useState(false);
-  const [loading,  setLoading]  = useState(true);
-  const [loadText, setLoadText] = useState("連線 Firebase…");
+  const [loading,  setLoading]  = useState(true);   // 只用於初始化
+  const [loadText, setLoadText] = useState("載入資料中…");
+  const [working,  setWorking]  = useState(false);  // 設定/班表上傳用
 
   const [page, setPage] = useState("calendar");
   const [ranges,     setRanges]     = useState({ AB:{}, C:{} });
-  const [bonusAmt,   setBonusAmt]   = useState({ AB:{}, C:{} }); // 每節每人員量的固定獎金金額
   const [bonusThres, setBonusThres] = useState({ AB:{}, C:{} }); // 超次獎金門檻
   const [sessions,   setSessions]   = useState({});   // { dateKey: { A:{count,staff,note,codes}, ... } }
   const [schedule,   setSchedule]   = useState({});   // { dateKey: { A:[codes], B:[codes], C:[codes] } }
@@ -213,6 +230,7 @@ export default function App() {
   const [inputStaff, setInputStaff] = useState("6");
   const [inputNote,  setInputNote]  = useState("");
   const [toast,      setToast]      = useState(null);
+  const [saving,     setSaving]     = useState(false);
 
   const unsubRef = useRef(null);
 
@@ -227,7 +245,6 @@ export default function App() {
         ]);
         if (cfg) {
           if (cfg.ranges)     setRanges(cfg.ranges);
-          if (cfg.bonusAmt)   setBonusAmt(cfg.bonusAmt);
           if (cfg.bonusThres) setBonusThres(cfg.bonusThres);
         }
         if (sched) setSchedule(sched);
@@ -274,7 +291,7 @@ export default function App() {
   // ── 儲存人次 ───────────────────────────────
   async function saveEntry() {
     if (inputCount === "") { showToast("請先輸入人次！","error"); return; }
-    setLoading(true); setLoadText("儲存中…");
+    setSaving(true);
     try {
       const entry = { count:Number(inputCount), staff:inputStaff, note:inputNote };
       const existing = sessions[inputDate] || {};
@@ -283,7 +300,7 @@ export default function App() {
     } catch(e) {
       showToast("儲存失敗："+e.message,"error");
     }
-    setLoading(false);
+    setSaving(false);
   }
 
   // ── 分析某節 ───────────────────────────────
@@ -294,19 +311,21 @@ export default function App() {
     const st = sessionType(sess);
     const range  = ranges[st]?.[staff];
     const thres  = bonusThres[st]?.[staff];
-    const amt    = bonusAmt[st]?.[staff];
     const ok     = inRange(count, range);
     const isBonus = aboveBonus(count, thres);
 
     const [y,m,d] = dk.split("-").map(Number);
-    const prev3 = getPrev3WeeksDates(y, m-1, d);
-    const prevCounts = prev3.map(pk=>sessions[pk]?.[sess]?.count).filter(v=>v!==undefined);
-    const avg = prevCounts.length===3 ? prevCounts.reduce((a,b)=>a+b,0)/3 : null;
+    // 當日 + 前兩週，共三週（含當日）
+    const three = get3WeeksDates(y, m-1, d);
+    const threeCounts = three.map(pk=>sessions[pk]?.[sess]?.count).filter(v=>v!==undefined);
+    // 三週都有資料才計算平均
+    const avg = threeCounts.length===3 ? threeCounts.reduce((a,b)=>a+b,0)/3 : null;
     const avgOk = avg!==null ? inRange(avg, range) : null;
+    // 三週平均超出緩衝上下界才警示
     const avgWarn = avgOk === false;
 
-    return { count, staff, range, thres, amt, ok, isBonus, avg, avgOk, avgWarn };
-  }, [sessions, ranges, bonusThres, bonusAmt]);
+    return { count, staff, range, thres, ok, isBonus, avg, avgOk, avgWarn };
+  }, [sessions, ranges, bonusThres]);
 
   // ── chip 顏色狀態 ───────────────────────────
   function chipStatus(dk, sess) {
@@ -321,10 +340,10 @@ export default function App() {
     return "neutral";
   }
 
-  // ── 月末獎金計算 ────────────────────────────
-  function calcMonthlyBonus(y, m) {
+  // ── 月超次統計 ──────────────────────────────
+  function calcMonthlyOvertime(y, m) {
     const days = getDaysInMonth(y, m);
-    const bonusMap = {}; // { therapistCode: totalBonus }
+    const overtimeMap = {}; // { therapistCode: count }
 
     for (let d = 1; d <= days; d++) {
       const dk = dateKey(y, m, d);
@@ -336,37 +355,33 @@ export default function App() {
         if (!entry) continue;
         const st = sessionType(sess);
         const thres = bonusThres[st]?.[entry.staff];
-        const amt   = bonusAmt[st]?.[entry.staff];
         if (!aboveBonus(entry.count, thres)) continue;
-        if (!amt || Number(amt) === 0) continue;
 
-        // 找當節的治療師（排除助理）
         const codes = sched[sess] || [];
         const therapists = codes.filter(c => !ASSISTANT_CODES.includes(c));
         for (const code of therapists) {
-          bonusMap[code] = (bonusMap[code] || 0) + Number(amt);
+          overtimeMap[code] = (overtimeMap[code] || 0) + 1;
         }
       }
     }
-    return bonusMap;
+    return overtimeMap;
   }
 
   // ── 儲存設定 ───────────────────────────────
-  async function saveSettings(newRanges, newBonusAmt, newBonusThres) {
-    setLoading(true); setLoadText("儲存設定…");
+  async function saveSettings(newRanges, newBonusThres) {
+    setWorking(true);
     try {
-      await fsSet("config","settings",{ ranges:newRanges, bonusAmt:newBonusAmt, bonusThres:newBonusThres });
+      await fsSet("config","settings",{ ranges:newRanges, bonusThres:newBonusThres });
       setRanges(newRanges);
-      setBonusAmt(newBonusAmt);
       setBonusThres(newBonusThres);
       showToast("✓ 設定儲存成功！");
     } catch(e) { showToast("儲存失敗","error"); }
-    setLoading(false);
+    setWorking(false);
   }
 
   // ── 上傳班表（清空該月再重寫）─────────────
   async function uploadSchedule(file) {
-    setLoading(true); setLoadText("解析班表…");
+    setWorking(true);
     try {
       const buf = await file.arrayBuffer();
       const parsed = parseScheduleExcel(buf);
@@ -375,7 +390,7 @@ export default function App() {
       // 找出這次上傳涵蓋的年月
       const months = new Set(Object.keys(parsed).map(dk => dk.slice(0,7))); // "YYYY-MM"
 
-      setLoadText("清除舊班表…");
+
       // 刪除 Firestore 中同月份的舊資料
       const snap = await getDocs(collection(db, "schedule"));
       const toDelete = [];
@@ -386,7 +401,7 @@ export default function App() {
         await deleteDoc(doc(db, "schedule", id));
       }
 
-      setLoadText("上傳中…");
+
       for (const [dk, data] of Object.entries(parsed)) {
         await fsSet("schedule", dk, data);
       }
@@ -401,7 +416,7 @@ export default function App() {
     } catch(e) {
       showToast("班表解析失敗："+e.message, "error");
     }
-    setLoading(false);
+    setWorking(false);
   }
 
   // ──────────────────────────────────────────────
@@ -416,15 +431,18 @@ export default function App() {
     </div>
   );
 
+  // 初始化期間只顯示 Loader，不渲染任何其他 UI
+  if (loading) return <Loader text={loadText} />;
+
   return (
     <div style={S.root}>
-      {loading && <Loader text={loadText} />}
+      {working && <WorkingBar />}
       {toast && <Toast message={toast.message} type={toast.type} onDone={()=>setToast(null)} />}
 
       <nav style={S.nav}>
         <span style={S.navBrand}>🏥 治療人次統計</span>
         <div style={S.navTabs}>
-          {[["calendar","📅 月曆"],["input","✏️ 輸入"],["bonus","🏅 獎金"],["settings","⚙️ 設定"]].map(([p,l])=>(
+          {[["calendar","📅 月曆"],["input","✏️ 輸入"],["stats","📊 超次統計"],["settings","⚙️ 設定"]].map(([p,l])=>(
             <button key={p} onClick={()=>setPage(p)}
               style={{ ...S.navBtn, ...(page===p?S.navBtnActive:{}) }}>{l}</button>
           ))}
@@ -449,21 +467,19 @@ export default function App() {
             inputNote={inputNote} setInputNote={setInputNote}
             ranges={ranges} bonusThres={bonusThres}
             analyzeEntry={analyzeEntry} onSave={saveEntry}
-            schedule={schedule}
+            schedule={schedule} saving={saving}
           />
         )}
-        {page==="bonus" && (
-          <BonusPage viewY={viewY} viewM={viewM}
+        {page==="stats" && (
+          <StatsPage viewY={viewY} viewM={viewM}
             setViewY={setViewY} setViewM={setViewM}
-            calcMonthlyBonus={calcMonthlyBonus}
             sessions={sessions} schedule={schedule}
-            bonusThres={bonusThres} bonusAmt={bonusAmt}
-            ranges={ranges}
+            bonusThres={bonusThres}
           />
         )}
         {page==="settings" && (
           <SettingsPage
-            ranges={ranges} bonusAmt={bonusAmt} bonusThres={bonusThres}
+            ranges={ranges} bonusThres={bonusThres}
             onSave={saveSettings} uploadSchedule={uploadSchedule}
             showToast={showToast}
           />
@@ -551,7 +567,7 @@ function CalendarPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,analyzeE
               {SESSIONS.map(sess => {
                 const a = analyzeEntry(dk, sess);
                 if (!a||!a.avgWarn||a.avg===null) return null;
-                return <div key={`av${sess}`} style={S.avgWarning}>{sess}均{a.avg.toFixed(1)}⚠️</div>;
+                return <div key={`av${sess}`} style={S.avgWarning}>{sess}三週均{a.avg.toFixed(1)}⚠️</div>;
               })}
             </div>
           );
@@ -570,7 +586,7 @@ function CalendarPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,analyzeE
 // INPUT PAGE
 // ══════════════════════════════════════════════
 function InputPage({ inputDate,setInputDate,inputSess,setInputSess,inputCount,setInputCount,
-  inputStaff,setInputStaff,inputNote,setInputNote,ranges,bonusThres,analyzeEntry,onSave,schedule }) {
+  inputStaff,setInputStaff,inputNote,setInputNote,ranges,bonusThres,analyzeEntry,onSave,schedule,saving }) {
 
   const st = sessionType(inputSess);
   const range = ranges[st]?.[inputStaff];
@@ -640,10 +656,10 @@ function InputPage({ inputDate,setInputDate,inputSess,setInputSess,inputCount,se
         </div>
       </div>
 
-      {/* 合理範圍 + 獎金門檻 */}
+      {/* 緩衝範圍 + 獎金門檻 */}
       <div style={S.rangeBox}>
         <div>
-          <span style={S.rangeLabel}>{inputSess==="C"?"C班":"AB班"} × {inputStaff}　合理區間：</span>
+          <span style={S.rangeLabel}>{inputSess==="C"?"C班":"AB班"} × {inputStaff}　緩衝區間：</span>
           <span style={S.rangeVal}>
             {(range&&range[0]!==""&&range[1]!=="") ? `${range[0]} ～ ${range[1]}` : "未設定"}
           </span>
@@ -683,23 +699,23 @@ function InputPage({ inputDate,setInputDate,inputSess,setInputSess,inputCount,se
           placeholder="選填：輸入本節備註…" style={S.noteInput} rows={2}/>
       </div>
 
-      <button onClick={onSave} style={S.saveBtn} disabled={inputCount===""}>💾 儲存此節</button>
+      <button onClick={onSave} style={{...S.saveBtn, opacity:saving?0.7:1}} disabled={inputCount===" "||saving}>{saving?"儲存中…":"💾 儲存此節"}</button>
 
       {/* 前三週分析 */}
       {analysis && (
         <div style={S.analysisBox}>
-          <div style={S.analysisTitle}>📊 前三週同節平均分析</div>
+          <div style={S.analysisTitle}>📊 連續三週（含本節）平均分析</div>
           {analysis.avg!==null ? (
             <div style={{...S.analysisRow,color:analysis.avgWarn?"#dc2626":"#065f46",fontWeight:600}}>
-              前三週平均：{analysis.avg.toFixed(1)}
-              {analysis.avgWarn && <span style={S.avgAlert}>　⚠️ 連續三週超出合理範圍！</span>}
+              三週平均（含本節）：{analysis.avg.toFixed(1)}
+              {analysis.avgWarn && <span style={S.avgAlert}>　⚠️ 連續三週平均超出緩衝範圍！</span>}
               {!analysis.avgWarn && analysis.avgOk===true && <span style={{color:"#059669"}}>　✓ 正常</span>}
             </div>
           ) : (
             <div style={S.analysisRow}>前三週資料不足（需完整三週）</div>
           )}
-          {range&&range[0]!==""&&<div style={{...S.analysisRow,color:"#64748b"}}>合理區間：{range[0]}～{range[1]}</div>}
-          {thres!==""&&thres!=null&&<div style={{...S.analysisRow,color:"#b45309"}}>獎金門檻：＞{thres}</div>}
+          {range&&range[0]!==""&&<div style={{...S.analysisRow,color:"#64748b"}}>緩衝區間：{range[0]}～{range[1]}</div>}
+          {thres!==""&&thres!=null&&<div style={{...S.analysisRow,color:"#b45309"}}>超次門檻：＞{thres}</div>}
         </div>
       )}
     </div>
@@ -707,58 +723,74 @@ function InputPage({ inputDate,setInputDate,inputSess,setInputSess,inputCount,se
 }
 
 // ══════════════════════════════════════════════
-// BONUS PAGE
+// STATS PAGE - 超次統計
 // ══════════════════════════════════════════════
-function BonusPage({ viewY,viewM,setViewY,setViewM,calcMonthlyBonus,sessions,schedule,bonusThres,bonusAmt,ranges }) {
+function StatsPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,bonusThres }) {
   function prev() { if(viewM===0){setViewY(y=>y-1);setViewM(11);}else setViewM(m=>m-1); }
   function next() { if(viewM===11){setViewY(y=>y+1);setViewM(0);}else setViewM(m=>m+1); }
 
-  const bonusMap = calcMonthlyBonus(viewY, viewM);
-  const total = Object.values(bonusMap).reduce((a,b)=>a+b, 0);
-
-  // 建立明細：哪天哪節超次
+  // 計算當月每位治療師的超次節次明細
   const days = getDaysInMonth(viewY, viewM);
+  const overtimeMap = {}; // { code: [ {dk, sess, count, thres} ] }
   const details = [];
-  for (let d=1; d<=days; d++) {
+
+  for (let d = 1; d <= days; d++) {
     const dk = dateKey(viewY, viewM, d);
+    const sched = schedule[dk];
+    if (!sched) continue;
     for (const sess of SESSIONS) {
       const entry = sessions[dk]?.[sess];
       if (!entry) continue;
       const st = sessionType(sess);
       const thres = bonusThres[st]?.[entry.staff];
-      const amt   = bonusAmt[st]?.[entry.staff];
       if (!aboveBonus(entry.count, thres)) continue;
-      const codes = schedule[dk]?.[sess] || [];
-      const therapists = codes.filter(c=>!ASSISTANT_CODES.includes(c));
-      details.push({ dk, sess, count:entry.count, staff:entry.staff, thres, amt, therapists });
+      const codes = sched[sess] || [];
+      const therapists = codes.filter(c => !ASSISTANT_CODES.includes(c));
+      details.push({ dk, sess, count: entry.count, staff: entry.staff, thres, therapists });
+      for (const code of therapists) {
+        if (!overtimeMap[code]) overtimeMap[code] = [];
+        overtimeMap[code].push({ dk, sess, count: entry.count });
+      }
     }
   }
 
+  const sortedTherapists = Object.entries(overtimeMap).sort((a,b) => b[1].length - a[1].length);
+
   return (
-    <div style={{ maxWidth:680,margin:"0 auto" }}>
+    <div style={{ maxWidth:680, margin:"0 auto" }}>
       <div style={S.calHeader}>
         <button onClick={prev} style={S.arrowBtn}>‹</button>
-        <span style={S.monthTitle}>{viewY} 年 {viewM+1} 月　獎金報表</span>
+        <span style={S.monthTitle}>{viewY} 年 {viewM+1} 月　超次統計</span>
         <button onClick={next} style={S.arrowBtn}>›</button>
       </div>
 
-      {/* 每人總獎金 */}
+      {/* 每人超次次數 */}
       <div style={S.bonusSection}>
-        <div style={S.bonusSectionTitle}>🏅 每位治療師本月獎金</div>
-        {Object.keys(bonusMap).length === 0 ? (
-          <div style={{ color:"#94a3b8",padding:"20px 0",textAlign:"center" }}>本月尚無超次獎金記錄</div>
+        <div style={S.bonusSectionTitle}>📊 每位治療師本月超次節數</div>
+        {sortedTherapists.length === 0 ? (
+          <div style={{ color:"#94a3b8", padding:"20px 0", textAlign:"center" }}>
+            本月尚無超次記錄
+          </div>
         ) : (
           <div style={S.bonusGrid}>
-            {Object.entries(bonusMap).sort((a,b)=>b[1]-a[1]).map(([code, amt])=>(
+            {sortedTherapists.map(([code, list]) => (
               <div key={code} style={S.bonusCard}>
                 <div style={S.bonusCode}>{code}</div>
-                <div style={S.bonusAmount}>NT$ {amt.toLocaleString()}</div>
+                <div style={S.bonusAmount}>
+                  <span style={{ fontSize:32, fontWeight:900 }}>{list.length}</span>
+                  <span style={{ fontSize:14, marginLeft:4 }}>節</span>
+                </div>
+                <div style={{ fontSize:11, color:"#92400e", marginTop:4 }}>
+                  {list.map(r => `${r.dk.slice(5)} ${r.sess}班`).join("、")}
+                </div>
               </div>
             ))}
           </div>
         )}
-        {Object.keys(bonusMap).length>0 && (
-          <div style={S.bonusTotal}>本月獎金總計：<strong>NT$ {total.toLocaleString()}</strong></div>
+        {sortedTherapists.length > 0 && (
+          <div style={{ ...S.bonusTotal, color:"#854d0e" }}>
+            本月超次總節數：<strong>{details.length} 節</strong>
+          </div>
         )}
       </div>
 
@@ -775,21 +807,17 @@ function BonusPage({ viewY,viewM,setViewY,setViewM,calcMonthlyBonus,sessions,sch
                 <th style={S.th}>人次</th>
                 <th style={S.th}>門檻</th>
                 <th style={S.th}>治療師</th>
-                <th style={S.th}>每人獎金</th>
               </tr>
             </thead>
             <tbody>
-              {details.map((r,i)=>(
+              {details.map((r,i) => (
                 <tr key={i} style={{ background:i%2===0?"#f8fafc":"#fff" }}>
                   <td style={S.td}>{r.dk.slice(5)}</td>
                   <td style={S.td}>{r.sess}班</td>
                   <td style={S.td}>{r.staff}</td>
-                  <td style={{ ...S.td,fontWeight:700,color:"#854d0e" }}>{r.count}</td>
+                  <td style={{ ...S.td, fontWeight:700, color:"#854d0e" }}>{r.count}</td>
                   <td style={S.td}>{r.thres}</td>
                   <td style={S.td}>{r.therapists.join(" ") || "—"}</td>
-                  <td style={{ ...S.td,fontWeight:700,color:"#059669" }}>
-                    {r.amt ? `NT$ ${Number(r.amt).toLocaleString()}` : "—"}
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -803,15 +831,13 @@ function BonusPage({ viewY,viewM,setViewY,setViewM,calcMonthlyBonus,sessions,sch
 // ══════════════════════════════════════════════
 // SETTINGS PAGE
 // ══════════════════════════════════════════════
-function SettingsPage({ ranges,bonusAmt,bonusThres,onSave,uploadSchedule,showToast }) {
+function SettingsPage({ ranges,bonusThres,onSave,uploadSchedule,showToast }) {
   const [lRanges, setLRanges] = useState(()=>JSON.parse(JSON.stringify(ranges)));
-  const [lAmt,    setLAmt]    = useState(()=>JSON.parse(JSON.stringify(bonusAmt)));
   const [lThres,  setLThres]  = useState(()=>JSON.parse(JSON.stringify(bonusThres)));
   const fileRef = useRef();
 
   // 同步 props 變更（Firebase 載入後）
   useEffect(()=>{ setLRanges(JSON.parse(JSON.stringify(ranges))); },[ranges]);
-  useEffect(()=>{ setLAmt(JSON.parse(JSON.stringify(bonusAmt))); },[bonusAmt]);
   useEffect(()=>{ setLThres(JSON.parse(JSON.stringify(bonusThres))); },[bonusThres]);
 
   function setVal(setter, type, staff, key, val) {
@@ -861,10 +887,9 @@ function SettingsPage({ ranges,bonusAmt,bonusThres,onSave,uploadSchedule,showToa
               <thead>
                 <tr style={S.thead}>
                   <th style={S.th}>人員量</th>
-                  <th style={S.th}>合理最小</th>
-                  <th style={S.th}>合理最大</th>
+                  <th style={S.th}>緩衝下限</th>
+                  <th style={S.th}>緩衝上限</th>
                   <th style={{ ...S.th,color:"#b45309",background:"#fffbeb" }}>超次門檻</th>
-                  <th style={{ ...S.th,color:"#065f46",background:"#f0fdf4" }}>每人獎金(NT$)</th>
                 </tr>
               </thead>
               <tbody>
@@ -889,12 +914,6 @@ function SettingsPage({ ranges,bonusAmt,bonusThres,onSave,uploadSchedule,showToa
                         onChange={e=>setVal(setLThres,type,staff,"val",e.target.value)}
                         style={{ ...S.settingInput,borderColor:"#fbbf24",background:"#fffbeb" }} placeholder="—"/>
                     </td>
-                    <td style={S.td}>
-                      <input type="number" min="0" max="99999"
-                        value={lAmt[type]?.[staff]??""}
-                        onChange={e=>setVal(setLAmt,type,staff,"val",e.target.value)}
-                        style={{ ...S.settingInput,borderColor:"#6ee7b7",background:"#f0fdf4" }} placeholder="—"/>
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -904,9 +923,9 @@ function SettingsPage({ ranges,bonusAmt,bonusThres,onSave,uploadSchedule,showToa
       ))}
 
       <div style={S.settingsBtnRow}>
-        <button onClick={()=>{ setLRanges({AB:{},C:{}}); setLAmt({AB:{},C:{}}); setLThres({AB:{},C:{}}); }}
+        <button onClick={()=>{ setLRanges({AB:{},C:{}}); setLThres({AB:{},C:{}}); }}
           style={S.resetBtn}>↩ 清空所有</button>
-        <button onClick={()=>onSave(lRanges,lAmt,lThres)} style={S.saveSettingsBtn}>✓ 儲存設定</button>
+        <button onClick={()=>onSave(lRanges,lThres)} style={S.saveSettingsBtn}>✓ 儲存設定</button>
       </div>
     </div>
   );
