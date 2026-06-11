@@ -320,11 +320,25 @@ export default function App() {
     const threeCounts = three.map(pk=>sessions[pk]?.[sess]?.count).filter(v=>v!==undefined);
     // 三週都有資料才計算平均
     const avg = threeCounts.length===3 ? threeCounts.reduce((a,b)=>a+b,0)/3 : null;
-    const avgOk = avg!==null ? inRange(avg, range) : null;
-    // 三週平均超出緩衝上下界才警示
-    const avgWarn = avgOk === false;
 
-    return { count, staff, range, thres, ok, isBonus, avg, avgOk, avgWarn };
+    // 取得「下週同節」的治療人員量與對應緩衝上限
+    const nextWeekBase = new Date(y, m-1, d);
+    nextWeekBase.setDate(nextWeekBase.getDate() + 7);
+    const nextDk = dateKey(nextWeekBase.getFullYear(), nextWeekBase.getMonth(), nextWeekBase.getDate());
+    const nextStaff = sessions[nextDk]?.[sess]?.staff || schedule[nextDk]?.[sess] && codestoStaffOption(schedule[nextDk][sess]);
+    const nextRange = nextStaff ? ranges[sessionType(sess)]?.[nextStaff] : null;
+    const nextUpperLimit = nextRange && nextRange[1] !== "" ? Number(nextRange[1]) : null;
+
+    // 下週緩衝下限
+    const nextLowerLimit = nextRange && nextRange[0] !== "" ? Number(nextRange[0]) : null;
+
+    // 三週平均 > 下週緩衝上限 → 紅色警示
+    const avgWarnHigh = avg !== null && nextUpperLimit !== null && avg > nextUpperLimit;
+    // 三週平均 < 下週緩衝下限 → 藍色警示
+    const avgWarnLow  = avg !== null && nextLowerLimit !== null && avg < nextLowerLimit;
+    const avgWarn = avgWarnHigh || avgWarnLow;
+
+    return { count, staff, range, thres, ok, isBonus, avg, avgWarn, avgWarnHigh, avgWarnLow, nextStaff, nextUpperLimit, nextLowerLimit };
   }, [sessions, ranges, bonusThres]);
 
   // ── chip 顏色狀態 ───────────────────────────
@@ -333,10 +347,11 @@ export default function App() {
     if (!info) return "empty";
     const a = analyzeEntry(dk, sess);
     if (!a) return "empty";
-    if (a.avgWarn) return "avg_warn";
-    if (a.isBonus) return "bonus";
+    if (a.avgWarnHigh) return "avg_warn_high";
+    if (a.avgWarnLow)  return "avg_warn_low";
+    if (a.isBonus)     return "bonus";
     if (a.ok === true)  return "ok";
-    if (a.ok === false) return "avg_warn";
+    if (a.ok === false) return "avg_warn_high";
     return "neutral";
   }
 
@@ -567,14 +582,21 @@ function CalendarPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,analyzeE
               {SESSIONS.map(sess => {
                 const a = analyzeEntry(dk, sess);
                 if (!a||!a.avgWarn||a.avg===null) return null;
-                return <div key={`av${sess}`} style={S.avgWarning}>{sess}三週均{a.avg.toFixed(1)}⚠️</div>;
+                return (
+                    <div key={`av${sess}`} style={{
+                      ...S.avgWarning,
+                      ...(a.avgWarnLow ? {background:"#dbeafe",color:"#1e40af"} : {})
+                    }}>
+                      {sess}均{a.avg?.toFixed(1)}{a.avgWarnHigh?"↑":"↓"}⚠️
+                    </div>
+                  );
               })}
             </div>
           );
         })}
       </div>
       <div style={S.legend}>
-        {[["ok","正常"],["bonus","超獎金"],["avg_warn","超出範圍"],["neutral","未設範圍"],["empty","未輸入"]].map(([s,l])=>(
+        {[["ok","正常"],["bonus","超次門檻"],["avg_warn_high","均值偏高"],["avg_warn_low","均值偏低"],["neutral","未設範圍"],["empty","未輸入"]].map(([s,l])=>(
           <div key={s} style={S.legendItem}><div style={{ ...S.legendDot,...chipColor(s) }}/>{l}</div>
         ))}
       </div>
@@ -707,14 +729,23 @@ function InputPage({ inputDate,setInputDate,inputSess,setInputSess,inputCount,se
           <div style={S.analysisTitle}>📊 連續三週（含本節）平均分析</div>
           {analysis.avg!==null ? (
             <div style={{...S.analysisRow,color:analysis.avgWarn?"#dc2626":"#065f46",fontWeight:600}}>
-              三週平均（含本節）：{analysis.avg.toFixed(1)}
-              {analysis.avgWarn && <span style={S.avgAlert}>　⚠️ 連續三週平均超出緩衝範圍！</span>}
-              {!analysis.avgWarn && analysis.avgOk===true && <span style={{color:"#059669"}}>　✓ 正常</span>}
+              三週平均：{analysis.avg.toFixed(1)}
+              {analysis.avgWarnHigh && <span style={S.avgAlert}>　⚠️ 超過下週緩衝上限！</span>}
+              {analysis.avgWarnLow  && <span style={{color:"#1e40af",fontWeight:700}}>　⚠️ 低於下週緩衝下限！</span>}
+              {!analysis.avgWarn && <span style={{color:"#059669"}}>　✓ 正常</span>}
             </div>
           ) : (
-            <div style={S.analysisRow}>前三週資料不足（需完整三週）</div>
+            <div style={S.analysisRow}>資料不足（需完整三週）</div>
           )}
-          {range&&range[0]!==""&&<div style={{...S.analysisRow,color:"#64748b"}}>緩衝區間：{range[0]}～{range[1]}</div>}
+          {analysis.nextStaff && (
+            <div style={{...S.analysisRow,color:"#64748b"}}>
+              下週人員量：{analysis.nextStaff}　緩衝區間：{analysis.nextLowerLimit ?? "—"}～{analysis.nextUpperLimit ?? "—"}
+            </div>
+          )}
+          {!analysis.nextStaff && (
+            <div style={{...S.analysisRow,color:"#94a3b8"}}>下週班表未設定</div>
+          )}
+          {range&&range[0]!==""&&<div style={{...S.analysisRow,color:"#64748b"}}>本節緩衝區間：{range[0]}～{range[1]}</div>}
           {thres!==""&&thres!=null&&<div style={{...S.analysisRow,color:"#b45309"}}>超次門檻：＞{thres}</div>}
         </div>
       )}
@@ -936,11 +967,13 @@ function SettingsPage({ ranges,bonusThres,onSave,uploadSchedule,showToast }) {
 // ──────────────────────────────────────────────
 function chipColor(status) {
   switch(status) {
-    case "bonus":    return { background:"#fef9c3",color:"#854d0e",border:"1.5px solid #fbbf24" };
-    case "avg_warn": return { background:"#fee2e2",color:"#991b1b",border:"1.5px solid #f87171" };
-    case "ok":       return { background:"#d1fae5",color:"#065f46",border:"1.5px solid #6ee7b7" };
-    case "neutral":  return { background:"#e0f2fe",color:"#0c4a6e",border:"1.5px solid #7dd3fc" };
-    default:         return { background:"#f1f5f9",color:"#94a3b8",border:"1px solid #e2e8f0" };
+    case "bonus":        return { background:"#fef9c3",color:"#854d0e",border:"1.5px solid #fbbf24" };
+    case "avg_warn_high":return { background:"#fee2e2",color:"#991b1b",border:"1.5px solid #f87171" };
+    case "avg_warn_low": return { background:"#dbeafe",color:"#1e40af",border:"1.5px solid #93c5fd" };
+    case "avg_warn":     return { background:"#fee2e2",color:"#991b1b",border:"1.5px solid #f87171" };
+    case "ok":           return { background:"#d1fae5",color:"#065f46",border:"1.5px solid #6ee7b7" };
+    case "neutral":      return { background:"#e0f2fe",color:"#0c4a6e",border:"1.5px solid #7dd3fc" };
+    default:             return { background:"#f1f5f9",color:"#94a3b8",border:"1px solid #e2e8f0" };
   }
 }
 
