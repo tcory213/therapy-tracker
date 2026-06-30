@@ -591,6 +591,12 @@ function CalendarPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,analyzeE
                     </div>
                   );
               })}
+              {(() => {
+                const total = SESSIONS.reduce((sum, s) => sum + (dayData[s]?.count || 0), 0);
+                const hasAny = SESSIONS.some(s => dayData[s]);
+                if (!hasAny) return null;
+                return <div style={S.dayTotal}>當日共 {total} 人次</div>;
+              })()}
             </div>
           );
         })}
@@ -1016,6 +1022,8 @@ const S = {
     padding:"0 3px",marginLeft:"auto" },
   avgWarning:{ fontSize:9,color:"#dc2626",marginTop:2,background:"#fff7f7",
     borderRadius:4,padding:"1px 4px" },
+  dayTotal:{ fontSize:10,fontWeight:700,color:"#0369a1",marginTop:3,
+    textAlign:"right",borderTop:"1px solid #e2e8f0",paddingTop:2 },
   legend:{ display:"flex",gap:10,justifyContent:"center",marginTop:14,flexWrap:"wrap" },
   legendItem:{ display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#64748b" },
   legendDot:{ width:12,height:12,borderRadius:3 },
