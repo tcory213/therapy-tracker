@@ -214,7 +214,7 @@ export default function App() {
   const [loadText, setLoadText] = useState("載入資料中…");
   const [working,  setWorking]  = useState(false);  // 設定/班表上傳用
 
-  const [page, setPage] = useState("calendar");
+  const [page, setPage] = useState("input");
   const [ranges,     setRanges]     = useState({ AB:{}, C:{} });
   const [bonusThres, setBonusThres] = useState({ AB:{}, C:{} }); // 超次獎金門檻
   const [sessions,   setSessions]   = useState({});   // { dateKey: { A:{count,staff,note,codes}, ... } }
