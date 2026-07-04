@@ -793,6 +793,33 @@ function StatsPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,bonusThres 
 
   const sortedTherapists = Object.entries(overtimeMap).sort((a,b) => b[1].length - a[1].length);
 
+  function exportExcel() {
+    // 建立資料
+    const rows = [
+      ["治療師", "超次節數", "超次日期與班次"],
+      ...sortedTherapists.map(([code, list]) => [
+        code,
+        list.length,
+        list.map(r => `${r.dk.slice(5)} ${r.sess}班`).join("、")
+      ]),
+      [],
+      ["合計", details.length, ""],
+    ];
+
+    // 轉成 CSV（不需要 XLSX 函式庫，瀏覽器直接下載）
+    const csv = "\uFEFF" + rows.map(r =>
+      r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")
+    ).join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `超次統計_${viewY}年${viewM+1}月.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div style={{ maxWidth:680, margin:"0 auto" }}>
       <div style={S.calHeader}>
@@ -800,6 +827,21 @@ function StatsPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,bonusThres 
         <span style={S.monthTitle}>{viewY} 年 {viewM+1} 月　超次統計</span>
         <button onClick={next} style={S.arrowBtn}>›</button>
       </div>
+
+      {/* 匯出按鈕 */}
+      {sortedTherapists.length > 0 && (
+        <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:10 }}>
+          <button onClick={exportExcel} style={{
+            background:"linear-gradient(90deg,#059669,#10b981)",
+            color:"#fff", border:"none", borderRadius:10,
+            padding:"8px 20px", cursor:"pointer", fontWeight:700, fontSize:14,
+            boxShadow:"0 2px 8px rgba(5,150,105,0.3)",
+            display:"flex", alignItems:"center", gap:6,
+          }}>
+            📥 匯出 Excel
+          </button>
+        </div>
+      )}
 
       {/* 每人超次次數 */}
       <div style={S.bonusSection}>
