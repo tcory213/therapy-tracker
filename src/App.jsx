@@ -347,11 +347,20 @@ export default function App() {
     if (!info) return "empty";
     const a = analyzeEntry(dk, sess);
     if (!a) return "empty";
-    if (a.avgWarnHigh) return "avg_warn_high";
-    if (a.avgWarnLow)  return "avg_warn_low";
-    if (a.isBonus)     return "bonus";
-    if (a.ok === true)  return "ok";
-    if (a.ok === false) return "avg_warn_high";
+    if (a.avgWarnHigh) return "avg_warn_high";   // 紅：三週均值>下週上限
+    if (a.avgWarnLow)  return "avg_warn_low";    // 灰：三週均值<下週下限
+    if (a.isBonus)     return "bonus";           // 黃：超次門檻
+    if (a.ok === true)  return "ok";             // 綠：正常
+    // 當節超出本節緩衝範圍
+    if (a.ok === false) {
+      const st = sessionType(sess);
+      const range = a.range;
+      if (range && range[0] !== "" && range[1] !== "") {
+        if (Number(a.count) < Number(range[0])) return "out_of_range"; // 藍：低於下限
+        if (Number(a.count) > Number(range[1])) return "out_high";     // 橘：高於上限
+      }
+      return "out_of_range";
+    }
     return "neutral";
   }
 
@@ -575,6 +584,12 @@ function CalendarPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,analyzeE
                       <span style={S.sessCount}>{info ? info.count : (schedStaff?"—":"·")}</span>
                       {displayStaff && <span style={S.staffPill}>{displayStaff}</span>}
                       {info?.note && <span style={{fontSize:9}}>📝</span>}
+                      {a?.avg !== null && a?.avg !== undefined && info && (
+                        <span style={{
+                          fontSize:9, marginLeft:"auto",
+                          opacity:0.75, whiteSpace:"nowrap"
+                        }}>均{a.avg.toFixed(1)}</span>
+                      )}
                     </div>
                   );
                 })}
@@ -585,7 +600,8 @@ function CalendarPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,analyzeE
                 return (
                     <div key={`av${sess}`} style={{
                       ...S.avgWarning,
-                      ...(a.avgWarnLow ? {background:"#dbeafe",color:"#1e40af"} : {})
+                      ...(a.avgWarnHigh ? {background:"#fee2e2",color:"#991b1b"} : {}),
+                      ...(a.avgWarnLow  ? {background:"#1e293b",color:"#f1f5f9"} : {})
                     }}>
                       {sess}均{a.avg?.toFixed(1)}{a.avgWarnHigh?"↑":"↓"}⚠️
                     </div>
@@ -602,7 +618,7 @@ function CalendarPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,analyzeE
         })}
       </div>
       <div style={S.legend}>
-        {[["ok","正常"],["bonus","超次門檻"],["avg_warn_high","均值偏高"],["avg_warn_low","均值偏低"],["neutral","未設範圍"],["empty","未輸入"]].map(([s,l])=>(
+        {[["ok","正常"],["bonus","超次門檻"],["avg_warn_high","均值↑下週上限"],["avg_warn_low","均值↓下週下限"],["out_high","當節超上限"],["out_of_range","當節低下限"],["neutral","未設範圍"],["empty","未輸入"]].map(([s,l])=>(
           <div key={s} style={S.legendItem}><div style={{ ...S.legendDot,...chipColor(s) }}/>{l}</div>
         ))}
       </div>
@@ -1015,12 +1031,14 @@ function SettingsPage({ ranges,bonusThres,onSave,uploadSchedule,showToast }) {
 // ──────────────────────────────────────────────
 function chipColor(status) {
   switch(status) {
-    case "bonus":        return { background:"#fef9c3",color:"#854d0e",border:"1.5px solid #fbbf24" };
-    case "avg_warn_high":return { background:"#fee2e2",color:"#991b1b",border:"1.5px solid #f87171" };
-    case "avg_warn_low": return { background:"#dbeafe",color:"#1e40af",border:"1.5px solid #93c5fd" };
+    case "bonus":        return { background:"#fef9c3",color:"#854d0e",border:"1.5px solid #fbbf24" };   // 黃：超次門檻
+    case "avg_warn_high":return { background:"#fee2e2",color:"#991b1b",border:"1.5px solid #f87171" };   // 紅：三週均值>下週上限
+    case "avg_warn_low": return { background:"#1e293b",color:"#f1f5f9",border:"1.5px solid #475569" };   // 黑：三週均值<下週下限
+    case "out_of_range": return { background:"#dbeafe",color:"#1e40af",border:"1.5px solid #93c5fd" };   // 藍：當節低於本節下限
+    case "out_high":     return { background:"#ffedd5",color:"#9a3412",border:"1.5px solid #fb923c" };   // 橘：當節高於本節上限
     case "avg_warn":     return { background:"#fee2e2",color:"#991b1b",border:"1.5px solid #f87171" };
-    case "ok":           return { background:"#d1fae5",color:"#065f46",border:"1.5px solid #6ee7b7" };
-    case "neutral":      return { background:"#e0f2fe",color:"#0c4a6e",border:"1.5px solid #7dd3fc" };
+    case "ok":           return { background:"#d1fae5",color:"#065f46",border:"1.5px solid #6ee7b7" };   // 綠：正常
+    case "neutral":      return { background:"#f1f5f9",color:"#64748b",border:"1px solid #e2e8f0" };     // 未設範圍
     default:             return { background:"#f1f5f9",color:"#94a3b8",border:"1px solid #e2e8f0" };
   }
 }
