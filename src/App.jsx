@@ -616,9 +616,26 @@ function CalendarPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,analyzeE
           );
         })}
       </div>
+      {/* 上層圖例：當節狀況 */}
       <div style={S.legend}>
-        {[["ok","當節正常"],["bonus","超次門檻"],["out_high","當節超上限"],["out_of_range","當節低下限"],["neutral","未設範圍"],["empty","未輸入"]].map(([s,l])=>(
+        <span style={{fontSize:11,color:"#94a3b8",marginRight:4}}>當節：</span>
+        {[["ok","正常"],["bonus","超次門檻"],["out_high","超上限"],["out_of_range","低下限"],["neutral","未設範圍"],["empty","未輸入"]].map(([s,l])=>(
           <div key={s} style={S.legendItem}><div style={{ ...S.legendDot,...chipColor(s) }}/>{l}</div>
+        ))}
+      </div>
+      {/* 下層圖例：三週平均 vs 下週緩衝 */}
+      <div style={{...S.legend, marginTop:6}}>
+        <span style={{fontSize:11,color:"#94a3b8",marginRight:4}}>三週均：</span>
+        {[
+          [{ bg:"#d1fae5",color:"#065f46",border:"1px solid #6ee7b7" },"均值在下週緩衝範圍內"],
+          [{ bg:"#fee2e2",color:"#991b1b",border:"1px solid #fca5a5" },"均值超過下週上限"],
+          [{ bg:"#1e293b",color:"#f8fafc",border:"1px solid #475569" },"均值低於下週下限"],
+          [{ bg:"#f8fafc",color:"#94a3b8",border:"1px solid #e2e8f0" },"資料不足或下週未設定"],
+        ].map(([style,label],i)=>(
+          <div key={i} style={S.legendItem}>
+            <div style={{ ...S.legendDot, background:style.bg, border:style.border }}/>
+            <span style={{color:style.color==="#f8fafc"?"#94a3b8":style.color}}>{label}</span>
+          </div>
         ))}
       </div>
     </div>
