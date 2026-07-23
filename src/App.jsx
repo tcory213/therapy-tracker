@@ -577,6 +577,11 @@ function CalendarPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,analyzeE
                       title={info?.note||""}>
                       <span style={S.sessLabel}>{sess}</span>
                       <span style={S.sessCount}>{info ? info.count : (schedStaff?"—":"·")}</span>
+                      {info && a?.range && a.range[0]!=="" && a.range[1]!=="" && (
+                        <span style={{fontSize:8,opacity:0.75,whiteSpace:"nowrap"}}>
+                          ({a.range[0]}-{a.range[1]})
+                        </span>
+                      )}
                       {displayStaff && <span style={S.staffPill}>{displayStaff}</span>}
                       {info?.note && <span style={{fontSize:9}}>📝</span>}
                     </div>
@@ -602,6 +607,11 @@ function CalendarPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,analyzeE
                     }}>
                       <span style={{fontWeight:600}}>{sess}均</span>
                       <span style={{fontWeight:700}}>{avgText}</span>
+                      {a?.nextLowerLimit != null && a?.nextUpperLimit != null && (
+                        <span style={{opacity:0.75, whiteSpace:"nowrap"}}>
+                          ({a.nextLowerLimit}-{a.nextUpperLimit})
+                        </span>
+                      )}
                     </div>
                   );
                 })}
