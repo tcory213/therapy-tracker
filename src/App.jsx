@@ -347,8 +347,7 @@ export default function App() {
     if (!info) return "empty";
     const a = analyzeEntry(dk, sess);
     if (!a) return "empty";
-    if (a.isBonus) return "bonus";       // 黃：超次門檻
-    if (a.ok === true) return "ok";      // 綠：在緩衝範圍內
+    // 先判斷是否超出緩衝範圍（優先於門檻）
     if (a.ok === false) {
       const range = a.range;
       if (range && range[0] !== "" && range[1] !== "") {
@@ -356,7 +355,10 @@ export default function App() {
         if (Number(a.count) > Number(range[1])) return "out_high";     // 橘：高於本節上限
       }
     }
-    return "neutral";
+    // 在緩衝範圍內再判斷門檻
+    if (a.isBonus) return "bonus";       // 黃：超次門檻（在範圍內但超過門檻）
+    if (a.ok === true) return "ok";      // 綠：正常
+    return "neutral";                    // 灰：未設範圍
   }
 
   // ── 月超次統計 ──────────────────────────────
