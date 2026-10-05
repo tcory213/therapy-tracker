@@ -593,10 +593,9 @@ function CalendarPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,analyzeE
               {/* 下層：每節三週平均值，紅/綠/黑 */}
               <div style={{ display:"flex", flexDirection:"column", gap:1, marginTop:2 }}>
                 {SESSIONS.map(sess => {
+                  // 有人次資料才顯示均值列
+                  if (!dayData[sess]) return null;
                   const a = analyzeEntry(dk, sess);
-                  const hasSched2 = schedule[dk]?.[sess];
-                  // 有人次資料或班表才顯示
-                  if (!dayData[sess] && !hasSched2) return null;
                   const rs = avgRowStyle(a);
                   const avgText = (a && a.avg !== null && a.avg !== undefined)
                     ? a.avg.toFixed(1)
@@ -604,15 +603,17 @@ function CalendarPage({ viewY,viewM,setViewY,setViewM,sessions,schedule,analyzeE
                   return (
                     <div key={`avg${sess}`} style={{
                       fontSize:9, borderRadius:4, padding:"1px 5px",
-                      display:"flex", justifyContent:"space-between",
+                      display:"flex", justifyContent:"space-between", gap:3,
                       background: rs.bg, color: rs.color, border: rs.border,
                     }}>
                       <span style={{fontWeight:600}}>{sess}均</span>
                       <span style={{fontWeight:700}}>{avgText}</span>
-                      {a?.nextLowerLimit != null && a?.nextUpperLimit != null && (
+                      {a?.nextLowerLimit != null && a?.nextUpperLimit != null ? (
                         <span style={{opacity:0.75, whiteSpace:"nowrap"}}>
                           ({a.nextLowerLimit}-{a.nextUpperLimit})
                         </span>
+                      ) : (
+                        <span style={{opacity:0.4, whiteSpace:"nowrap"}}>（下週未設）</span>
                       )}
                     </div>
                   );
