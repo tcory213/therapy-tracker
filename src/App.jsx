@@ -53,7 +53,7 @@ function fsOnSnapshot(col, callback) {
 // ──────────────────────────────────────────────
 // 常數
 // ──────────────────────────────────────────────
-const STAFF_OPTIONS  = ["6","5+1","5","4+1","4"];
+const STAFF_OPTIONS  = ["6","5.5","5+1","5","4.5","4+1","4","3.5"];
 const SESSIONS       = ["A","B","C"];
 const ASSISTANT_CODES = ["R","U","W"];   // 助理代碼
 
@@ -128,7 +128,7 @@ function parseScheduleExcel(arrayBuffer) {
       const dk = dateKey(date.getFullYear(), date.getMonth(), date.getDate());
       const slice = (r) => (r || []).slice(col, col + colWidth);
       const codes = (r) => slice(r)
-        .filter(v => v && typeof v === "string" && /^[A-Z]$/.test(v.trim()))
+        .filter(v => v && typeof v === "string" && /^[A-Za-z]$/.test(v.trim()))
         .map(v => v.trim());
 
       const codesA = codes(rowA);
@@ -148,12 +148,21 @@ function parseScheduleExcel(arrayBuffer) {
 }
 
 // 從人員代碼陣列推算人員量選項
+// 大寫 = 1 人力，小寫 = 0.5 人力，R/U/W 為助理（計為 +1）
 function codestoStaffOption(codes) {
   if (!codes || codes.length === 0) return null;
-  const assistants = codes.filter(c => ASSISTANT_CODES.includes(c)).length;
-  const therapists = codes.length - assistants;
-  if (assistants > 0) return `${therapists}+1`;
-  return String(therapists);
+  const assistants = codes.filter(c => ASSISTANT_CODES.includes(c));
+  const nonAssistants = codes.filter(c => !ASSISTANT_CODES.includes(c));
+  const hasAssistant = assistants.length > 0;
+  // 計算非助理人力：大寫=1，小寫=0.5
+  const power = nonAssistants.reduce((sum, c) => {
+    return sum + (/^[a-z]$/.test(c) ? 0.5 : 1);
+  }, 0);
+  if (hasAssistant) {
+    // 有助理：顯示治療師人力 + "+1"
+    return power % 1 === 0 ? `${power}+1` : `${power}+1`;
+  }
+  return power % 1 === 0 ? String(power) : String(power);
 }
 
 // ──────────────────────────────────────────────
@@ -427,13 +436,38 @@ export default function App() {
         await fsSet("schedule", dk, data);
       }
 
+      // 班表上傳後，同步更新已有 session 的 staff 欄位
+      const sessSnap = await getDocs(collection(db, "sessions"));
+      const staffUpdates = [];
+      sessSnap.forEach(d => {
+        const dk = d.id;
+        if (!months.has(dk.slice(0,7))) return; // 只更新同月份
+        if (!parsed[dk]) return;
+        const existing = d.data();
+        const updatedSess = { ...existing };
+        let changed = false;
+        for (const sess of ["A","B","C"]) {
+          if (!updatedSess[sess]) continue;
+          const newStaff = codestoStaffOption(parsed[dk][sess]);
+          if (newStaff && updatedSess[sess].staff !== newStaff) {
+            updatedSess[sess] = { ...updatedSess[sess], staff: newStaff };
+            changed = true;
+          }
+        }
+        if (changed) staffUpdates.push({ dk, data: updatedSess });
+      });
+      for (const { dk, data } of staffUpdates) {
+        await fsSet("sessions", dk, data);
+      }
+
       // 更新本地 schedule state：移除舊月份，加入新資料
       setSchedule(prev => {
         const next = { ...prev };
         for (const id of toDelete) delete next[id];
         return { ...next, ...parsed };
       });
-      showToast(`✓ 班表上傳成功！共 ${Object.keys(parsed).length} 天`);
+      const updateMsg = staffUpdates.length > 0 ? `，已更新 ${staffUpdates.length} 天的治療師人數` : "";
+      showToast(`✓ 班表上傳成功！共 ${Object.keys(parsed).length} 天${updateMsg}`);
     } catch(e) {
       showToast("班表解析失敗："+e.message, "error");
     }
@@ -672,7 +706,9 @@ function InputPage({ inputDate,setInputDate,inputSess,setInputSess,inputCount,se
   // 班表提示
   const schedCodes = schedule[inputDate]?.[inputSess];
   const schedStaff = schedCodes ? codestoStaffOption(schedCodes) : null;
-  const therapists = schedCodes ? schedCodes.filter(c=>!ASSISTANT_CODES.includes(c)) : [];
+  const therapistsFull = schedCodes ? schedCodes.filter(c=>!ASSISTANT_CODES.includes(c) && /^[A-Z]$/.test(c)) : [];
+  const therapistsHalf = schedCodes ? schedCodes.filter(c=>!ASSISTANT_CODES.includes(c) && /^[a-z]$/.test(c)) : [];
+  const therapists = [...therapistsFull, ...therapistsHalf];
   const assistants = schedCodes ? schedCodes.filter(c=>ASSISTANT_CODES.includes(c)) : [];
 
   function dispStyle() {
@@ -709,7 +745,8 @@ function InputPage({ inputDate,setInputDate,inputSess,setInputSess,inputCount,se
       {schedCodes && (
         <div style={S.schedInfo}>
           <span style={S.schedInfoTitle}>📋 班表：</span>
-          {therapists.length>0 && <span>治療師 {therapists.join(" ")}　</span>}
+          {therapistsFull.length>0 && <span>治療師 {therapistsFull.join(" ")}　</span>}
+          {therapistsHalf.length>0 && <span style={{color:"#0369a1"}}>半人力 {therapistsHalf.join(" ")}(×0.5)　</span>}
           {assistants.length>0 && <span style={{color:"#7c3aed"}}>助理 {assistants.join(" ")}</span>}
           <span style={S.schedInfoStaff}>→ {schedStaff}</span>
         </div>
@@ -993,8 +1030,10 @@ function SettingsPage({ ranges,bonusThres,onSave,uploadSchedule,showToast }) {
       <div style={S.settingsSection}>
         <div style={S.sectionTitle}>📤 上傳班表 Excel</div>
         <p style={{ color:"#64748b",fontSize:14,marginBottom:12 }}>
-          上傳 PT 工作表的班表 Excel，系統會自動解析每節治療人員量。<br/>
-          助理代碼：<strong>R、U、W</strong>（出現即計為 +1）
+          上傳班表 Excel，系統自動讀取 <strong>PT</strong> 頁籤並解析每節治療人員量。<br/>
+          助理代碼：<strong>R、U、W</strong>（出現即計為 +1）<br/>
+          大寫字母 = 1 人力；<strong>小寫字母 = 0.5 人力</strong>（例如 5 大寫 + 1 小寫 = 5.5）<br/>
+          重新上傳班表時，已儲存的人次記錄會自動更新治療師人數。
         </p>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleFile} style={{display:"none"}}/>
         <button onClick={()=>fileRef.current.click()} style={S.uploadBtn}>
